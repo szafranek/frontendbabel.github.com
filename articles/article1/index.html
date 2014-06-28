@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>What Every Frontend Developer Should Know About Webpage Rendering</title>
+    <link rel="stylesheet" type="text/css" href="/desktop.bundles/index/index.min.css">
+    <link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml" />
+</head>
+<body class="page">
+    <header class="header">
+        <div class="logo">Frontend Babel</div>
+        <ul class="site-menu">
+        
+            <li class="site-menu__item ">
+                <a class="link" href="/">Russian End</a>
+            </li>
+        
+            <li class="site-menu__item ">
+                <a class="link" href="/about">About</a>
+            </li>
+        
+        </ul>
+    </header>
+    <div class="content">
+        <h1 class="page__title">What Every Frontend Developer Should Know About Webpage Rendering</h1>
+<p>Translated from: <a href="http://habrahabr.ru/post/224187/">Habrahabr.ru</a></p>
+<p>Today I&#39;d like to focus on the subject of web page rendering and why it is important in web development. A lot of articles are available covering the subject, but the information is scattered and somehow fragmented. To wrap my head around the subject, for example, I had to study a lot of sources. That&#39;s why I decided I should write this article. I believe the article will be useful for beginners as well as for more advanced developers who want to refresh and structure what they already know.</p>
+<!-- cut -->
+
+<p>Rendering has to be optimized from the very beginning, when the page layout is being defined, as styles and scripts play the crucial role in page rendering. Professionals have to know certain tricks to avoid performance problems.</p>
+<p>This arcticle does not study the inner browser mechanics in detail, but rather offers some common principles. Different browser engines work differently, this would make a browser-specific study even more complicated.</p>
+<h2 id="how-do-browsers-render-a-web-page">How do browsers render a web page</h2>
+<p>We start with an overview of browser actions when rendering a page:</p>
+<ol>
+<li>The DOM (Document Object Model) is formed from the HTML that is received from a server.</li>
+<li>Styles are loaded and parsed, forming the CSSOM (CSS Object Model).</li>
+<li>On top of DOM and CSSOM, a rendering tree is created, which is a set of objects to be rendered (Webkit calls each of those a &quot;renderer&quot; or &quot;render object&quot;, while in Gecko it&#39;s a &quot;frame&quot;). Render tree reflects the DOM structure except for invisible elements (like the &lt;head&gt; tag or elements that have <code>display:none;</code> set). Each text string is represented in the rendering tree as a separate renderer. Each of the rendering objects contains its corresponding DOM object (or a text block) plus the calculated styles. In other words, the render tree describes the visual representation of a DOM.</li>
+<li>For each render tree element, its coordinates are calculated, which is called &quot;layout&quot;. Browsers use a flow method which only required one pass to layout all the elements (tables require more than one pass).</li>
+<li>Finally, this gets actually displayed in a browser window, a process called &quot;painting&quot;.</li>
+</ol>
+<p>When users interact with a page, or scripts modify it, some of the aforementioned operations have to be repeated, as the underlying page structure changes.</p>
+<h3 id="repaint">Repaint</h3>
+<p>When changing element styles which don&#39;t affect the element&#39;s position on a page (such as <code>background-color</code>, <code>border-color</code>, <code>visibility</code>), the browser just repaints the element again with the new styles applied (that means a &quot;repaint&quot; or &quot;restyle&quot; is happening).</p>
+<h3 id="reflow">Reflow</h3>
+<p>When the changes affect document contents or structure, or element position, a reflow (or relayout) happens. These changes are usually triggered by:</p>
+<ul>
+<li>DOM manipulation (element addition, deletion, altering, or changing element order);</li>
+<li>Contents changes, including text changes in form fields;</li>
+<li>Calculation or altering of CSS properties;</li>
+<li>Adding or removing style sheets;</li>
+<li>Changing the &quot;class&quot; attribute;</li>
+<li>Browser window manipulation (resizing, scrolling);</li>
+<li>Pseudo-class activation (:hover).</li>
+</ul>
+<h2 id="how-browsers-optimize-rendering">How browsers optimize rendering</h2>
+<p>Browsers are doing their best to restrict repaint/reflow to the area that covers the changed elements only. For eaxmple, a size change in an absolute/fixed positioned element only affects the element itself and its descendants, whereas a similar change in a statically positioned element triggers reflow for all the subsequent elements.</p>
+<p>Other optimization technique is that while running pieces of JavaScript code, browsers cache the changes, and appl them in a single pass after the code was run. For example, this piece of code will only trigger one reflow and repaint:</p>
+<pre><code>var $body = $(&#39;body&#39;);
+$body.css(&#39;padding&#39;, &#39;1px&#39;); // reflow, repaint
+$body.css(&#39;color&#39;, &#39;red&#39;); // repaint
+$body.css(&#39;margin&#39;, &#39;2px&#39;); // reflow, repaint
+// only 1 reflow and repaint will actually happen
+</code></pre><p>However, as mentioned above, accessing an element property triggers a forced reflow. This will happen if we add an extra line that reads an element property to the previous block:</p>
+<pre><code>var $body = $(&#39;body&#39;);
+$body.css(&#39;padding&#39;, &#39;1px&#39;);
+$body.css(&#39;padding&#39;); // reading a property, a forced reflow
+$body.css(&#39;color&#39;, &#39;red&#39;);
+$body.css(&#39;margin&#39;, &#39;2px&#39;);
+</code></pre><p>As a result, we get 2 reflows instead of one. Because of this, you should group reading element properties together to optimize performance (<a href="http://jsbin.com/duhah/2/edit">see a more detailed example on JSBin</a>).</p>
+<p>There are situations when you have to trigger a forced reflow. Example: we have to apply the same property (&quot;margin-left&quot; for example) to the same element twice. Initially, it should be set to <code>100px</code> without animation, and then it has to be animated with <code>transition</code> to a value of <code>50px</code>. You can study this example <a href="http://jsbin.com/qutev/1/edit">on JSBin</a> right now, but I&#39;ll describe it here in more detail.</p>
+<p>We start by creating a CSS class with a transition:</p>
+<pre><code>.has-transition {
+   -webkit-transition: margin-left 1s ease-out;
+      -moz-transition: margin-left 1s ease-out;
+        -o-transition: margin-left 1s ease-out;
+           transition: margin-left 1s ease-out;
+}
+</code></pre><p>Then proceed with the implementation:</p>
+<pre><code>var $targetElem = $(&#39;#targetElemId&#39;); // our element that has a &quot;has-transition&quot; class by default
+
+// remove the transition class
+$targetElem.removeClass(&#39;has-transition&#39;);
+
+// change the property expecting the transition to be off, as the class is not there anymore
+$targetElem.css(&#39;margin-left&#39;, 100);
+
+// put the transition class back
+$targetElem.addClass(&#39;has-transition&#39;);
+
+// change the property
+$targetElem.css(&#39;margin-left&#39;, 50);
+</code></pre><p>This implementation, however, does not work as expected. The changes are cached and applied only at the end of the code block. What we need is a forced reflow, which we can achieve by making the following changes:</p>
+<pre><code>// remove the transition class
+$(this).removeClass(&#39;has-transition&#39;);
+
+// change the property
+$(this).css(&#39;margin-left&#39;, 100);
+
+// trigger a forced reflow, so that changes in a class/property get applied immediately
+$(this)[0].offsetHeight; // an example, other properties would work, too
+
+// put the transition class back
+$(this).addClass(&#39;has-transition&#39;);
+
+// change the property
+$(this).css(&#39;margin-left&#39;, 50);
+</code></pre><p>Now this works as expected.</p>
+<h2 id="practical-advice-on-opmitization">Practical advice on opmitization</h2>
+<p>Summarizing the available information, I could recommend the following:</p>
+<ul>
+<li>Create valid HTML and CSS, do not forget to specify the document encoding. Styles should be included into &lt;head&gt;, and scripts appended to the end of the &lt;body&gt; tag.</li>
+<li>Try to simplify and optimize CSS selectors (this optimization is almost universally ignored by developers who mostly use CSS preprocessors). Keep nesting levels at a minimum. This is how CSS selectors rank according to their performance (starting from the fastest ones):<ol>
+<li>Identificator: <code>#id</code></li>
+<li>Class: <code>.class</code></li>
+<li>Tag: <code>div</code></li>
+<li>Adjacent sibling selector: <code>a + i</code></li>
+<li>Parent selector: <code>ul &gt; li</code></li>
+<li>Universal selector: <code>*</code></li>
+<li>Attribute selector: <code>input[type=&quot;text&quot;]</code></li>
+<li>Pseudoclasses and pseudoelements: <code>a:hover</code>
+You should remember that browsers process selectors from right to left, that&#39;s why the rightmost selector should be the fastest one — either <code>#id</code> or <code>.class</code>:<pre><code>div * {...} // bad
+.list li {...} // bad
+.list-item {...} // good
+#list .list-item {...} // good
+</code></pre></li>
+</ol>
+</li>
+<li>In your scripts, minimize DOM manipulation whenever possible. Cache everything, including properties and objects (if they are to be reused). It&#39;s better to work with an &quot;offline&quot; element when performing complicated manipulations (an &quot;offline&quot; element is one that is disconnected from DOM and only stored in memory), and append it to DOM afterwards.</li>
+<li>If you use jQuery to select elements, follow <a href="http://learn.jquery.com/performance/optimize-selectors/">jQuery selectors best practices</a>.</li>
+<li>To change element&#39;s styles, modifying the &quot;class&quot; attribute is one of the most performant ways. The deeper in the DOM tree you perform this change, the better (also because this helps decouple logics from presentation).</li>
+<li>Animate only absolute/fixed positioned elements if you can.</li>
+<li>It is a good idea to disable complicated <code>:hover</code> animations while scrolling (e.g. by adding an extra &quot;no-hover&quot; class to &lt;body&gt;). <a href="http://habrahabr.ru/post/204238/">Read an article on the subject</a>.</li>
+</ul>
+<p>For a more detailed overview, have a look at these articles:</p>
+<ol>
+<li><a href="http://taligarsiel.com/Projects/howbrowserswork1.htm">How browsers work</a></li>
+<li><a href="http://www.phpied.com/rendering-repaint-reflowrelayout-restyle/">Rendering: repaint, reflow/relayout, restyle</a></li>
+</ol>
+<p>I hope you find this article useful!</p>
+
+    </div>
+    <footer class="footer">
+      <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_top">
+      <input type="hidden" name="cmd" value="_s-xclick">
+      <input type="hidden" name="hosted_button_id" value="UAFZADV9BCGCU">
+      <input type="image" src="https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif" border="0" name="submit" alt="PayPal - The safer, easier way to pay online!">
+      <img alt="" border="0" src="https://www.paypalobjects.com/en_US/i/scr/pixel.gif" width="1" height="1">
+      </form>
+    </footer>
+</body>
+</html>
